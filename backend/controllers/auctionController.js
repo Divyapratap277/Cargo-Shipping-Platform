@@ -74,6 +74,8 @@ const placeBid = async (req, res) => {
         auction.currentLowestBid = amount;
         await auction.save();
 
+        req.io.to(req.params.id).emit('update-bid', bid);
+
         res.status(201).json(bid);
     } catch (error) {
         console.error(error.message);
