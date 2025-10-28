@@ -1,4 +1,3 @@
-
 import { useState } from 'react';
 import { registerUser } from '../../lib/api';
 import { useRouter } from 'next/router';
@@ -30,9 +29,7 @@ export default function Register() {
     return (
         <div className="min-h-screen bg-gray-900 text-white flex flex-col justify-center py-12 sm:px-6 lg:px-8">
             <div className="sm:mx-auto sm:w-full sm:max-w-md">
-                <div className="flex justify-center">
-                    <svg className="h-12 w-12" fill="none" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M14.5 13.5V5.41a1 1 0 0 0-.3-.7L9.8.29A1 1 0 0 0 9.08 0H1.5v13.5A2.5 2.5 0 0 0 4 16h8a2.5 2.5 0 0 0 2.5-2.5m-1.5 0v-7H8v-5H3v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1M9.5 5V2.12L12.38 5zM5.13 5h-.62v1.25h2.12V5zm-.62 3h7.12v1.25H4.5zm.62 3h-.62v1.25h7.12V11z" clip-rule="evenodd" fill="#4f46e5" fill-rule="evenodd"/></svg>
-                </div>
+                <h1 className="text-center text-4xl font-extrabold">Cargo Platform</h1>
                 <h2 className="mt-6 text-center text-3xl font-extrabold">Create a new account</h2>
                 <p className="mt-2 text-center text-sm text-gray-400">
                     Or{' '}
