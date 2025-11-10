@@ -1,7 +1,6 @@
-
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
-import { fetchAuctionDetails } from '../../lib/api'; // This function needs to be created in api.js
+import { fetchAuctionDetails, placeBidOnAuction } from '../lib/api';
 import io from 'socket.io-client';
 
 const socket = io('http://localhost:5000');

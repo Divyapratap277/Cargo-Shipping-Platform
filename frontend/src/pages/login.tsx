@@ -140,4 +140,3 @@ const LoginPage: FC = () => {
 
 // Ensure the default export is LoginPage
 export default LoginPage;
-

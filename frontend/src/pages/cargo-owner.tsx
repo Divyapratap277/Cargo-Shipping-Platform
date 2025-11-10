@@ -1,126 +1,293 @@
+"use client"; // Required for components using hooks (useState, useEffect, etc.)
+
 import { useState, useEffect } from 'react';
-import { createCargoListing, fetchMyCargo } from '../../lib/api';
+import { useRouter } from 'next/router'; // For routing
+import { createCargoListing, fetchMyCargo } from '../../lib/api'; // Use your advanced api.js functions
+import useSWR from 'swr'; // SWR will be used for auto-refreshing the list
+import { toast } from 'sonner'; // Use Sonner for notifications
+
+// Import Shadcn/UI Components using relative paths
+import { Button } from '../components/ui/button';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '../components/ui/card';
+import { Input } from '../components/ui/input';
+import { Label } from '../components/ui/label';
+import { Badge } from '../components/ui/badge';
+import { Toaster as Sonner } from '../components/ui/sonner';
+import { useSonner } from 'sonner';
+
+// Define the type for a Cargo object (good practice in TypeScript)
+interface Cargo {
+  _id: string;
+  description: string;
+  status: 'Pending' | 'Active' | 'Awarded' | 'Completed';
+  pickupLocation: string;
+  destination: string;
+  currentLowestBid?: number;
+  weight: number;
+}
 
 export default function CargoOwnerDashboard() {
-    const [description, setDescription] = useState('');
-    const [weight, setWeight] = useState('');
-    const [pickupLocation, setPickupLocation] = useState('');
-    const [destination, setDestination] = useState('');
-    const [pickupDate, setPickupDate] = useState('');
-    const [error, setError] = useState('');
-    const [myCargo, setMyCargo] = useState<any[]>([]);
+  const router = useRouter();
+  const { toasts } = useSonner();
 
-    useEffect(() => {
-        const loadMyCargo = async () => {
-            try {
-                const res = await fetchMyCargo();
-                if (Array.isArray(res)) {
-                    setMyCargo(res);
-                } else {
-                    setError(res.message || 'Failed to fetch cargo');
-                }
-            } catch (err) {
-                setError('An error occurred while fetching cargo');
-            }
-        };
-        loadMyCargo();
-    }, []);
+  // --- State for the "Create Cargo" form ---
+  const [description, setDescription] = useState('');
+  const [weight, setWeight] = useState('');
+  const [pickupLocation, setPickupLocation] = useState('');
+  const [destination, setDestination] = useState('');
+  const [pickupDate, setPickupDate] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setError('');
-        try {
-            const cargoData = { description, weight: Number(weight), pickupLocation, destination, pickupDate };
-            const res = await createCargoListing(cargoData);
-            if (res._id) {
-                setMyCargo([res, ...myCargo]);
-                // Clear form
-                setDescription('');
-                setWeight('');
-                setPickupLocation('');
-                setDestination('');
-                setPickupDate('');
-            } else {
-                setError(res.message || 'Failed to create cargo');
-            }
-        } catch (err) {
-            setError('An error occurred');
-        }
-    };
+  // --- Data Fetching for "My Listings" ---
+  // Use SWR to fetch the cargo list. It auto-refreshes!
+  // The fetcher function is simple: it just calls our apiFetch helper
+  const fetcher = (url: string) => fetchMyCargo().then((res) => {
+    if (res.message) { // Handle errors from our apiFetch
+      throw new Error(res.message);
+    }
+    return res;
+  });
 
-    return (
-        <div className="min-h-screen bg-gray-100">
-            <nav className="bg-white shadow-sm">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                    <div className="flex justify-between h-16">
-                        <div className="flex">
-                            <div className="flex-shrink-0 flex items-center">
-                                <h1 className="text-2xl font-bold text-gray-900">Cargo Owner Dashboard</h1>
-                            </div>
-                        </div>
-                    </div>
+  const { data: cargoList, error: swrError, mutate } = useSWR<Cargo[]>('myCargo', fetcher);
+
+  // --- Authentication and Authorization Check ---
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      router.push('/login'); // Redirect to login if no token
+      return;
+    }
+    
+    // Optional: Check userType from localStorage if you stored it
+    const userString = localStorage.getItem('user');
+    if (userString) {
+      const user = JSON.parse(userString);
+      if (user.userType !== 'cargo_owner') {
+        router.push('/login'); // Redirect if not a cargo owner
+      }
+    }
+  }, [router]);
+
+  // --- Form Submission Handler ---
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setError('');
+
+    try {
+      const cargoData = {
+        description,
+        weight: parseFloat(weight),
+        pickupLocation,
+        destination,
+        pickupDate,
+      };
+
+      // Validate data before sending
+      if (isNaN(cargoData.weight) || cargoData.weight <= 0) {
+        throw new Error("Weight must be a positive number.");
+      }
+      if (!cargoData.description || !cargoData.pickupLocation || !cargoData.destination || !cargoData.pickupDate) {
+         throw new Error("Please fill out all fields.");
+      }
+
+      const result = await createCargoListing(cargoData);
+
+      if (result.message) {
+        // Handle backend validation errors (e.g., "Description is required")
+        setError(result.message);
+        toast({
+          variant: "destructive",
+          title: "Failed to create listing",
+          description: result.message,
+        });
+      } else {
+        // Success!
+        toast({
+          title: "Auction Started!",
+          description: "Your cargo listing is now live for 5 minutes.",
+        });
+        
+        // Reset the form
+        setDescription('');
+        setWeight('');
+        setPickupLocation('');
+        setDestination('');
+        setPickupDate('');
+
+        // Tell SWR to re-fetch the cargo list immediately
+        mutate();
+      }
+    } catch (err: any) {
+      const errorMsg = err.message || "An unknown error occurred.";
+      setError(errorMsg);
+      Sonner({
+        variant: "destructive",
+        title: "Error",
+        description: errorMsg,
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    router.push('/login');
+  };
+  
+  // --- Badge Color Helper ---
+  const getStatusBadgeVariant = (status: Cargo['status']): "default" | "secondary" | "destructive" | "outline" => {
+    switch (status) {
+      case 'Active':
+      case 'Pending':
+        return 'default'; // Blue/Default for active/pending
+      case 'Awarded':
+      case 'Completed':
+        return 'secondary'; // Green for completed/awarded
+      default:
+        return 'outline';
+    }
+  };
+
+
+  return (
+    <div className="min-h-screen bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 p-4 md:p-8">
+      {/* Header */}
+      <header className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold">Cargo Owner Dashboard</h1>
+        <Button variant="outline" onClick={handleLogout}>Logout</Button>
+      </header>
+
+      {/* Main Content Area (2-column layout) */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        {/* Column 1: Create Cargo Form */}
+        <div className="lg:col-span-1">
+          <Card>
+            <CardHeader>
+              <CardTitle>List a New Cargo</CardTitle>
+              <CardDescription>Fill out the form to start a 5-minute auction.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="description">Cargo Description</Label>
+                  <Input 
+                    id="description" 
+                    placeholder="e.g., 50 Pallets of Electronics" 
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    required 
+                  />
                 </div>
-            </nav>
-
-            <div className="py-10">
-                <div className="max-w-7xl mx-auto sm:px-6 lg:px-8 grid grid-cols-1 lg:grid-cols-3 gap-8">
-                    <div className="lg:col-span-1">
-                        <div className="bg-white shadow sm:rounded-lg p-6">
-                            <h2 className="text-lg font-medium text-gray-900 mb-4">Create New Cargo Listing</h2>
-                            <form onSubmit={handleSubmit} className="space-y-6">
-                                <div>
-                                    <label htmlFor="description" className="block text-sm font-medium text-gray-700">Description</label>
-                                    <input type="text" id="description" value={description} onChange={(e) => setDescription(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" />
-                                </div>
-                                <div>
-                                    <label htmlFor="weight" className="block text-sm font-medium text-gray-700">Weight (kg)</label>
-                                    <input type="number" id="weight" value={weight} onChange={(e) => setWeight(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" />
-                                </div>
-                                <div>
-                                    <label htmlFor="pickupLocation" className="block text-sm font-medium text-gray-700">Pickup Location</label>
-                                    <input type="text" id="pickupLocation" value={pickupLocation} onChange={(e) => setPickupLocation(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" />
-                                </div>
-                                <div>
-                                    <label htmlFor="destination" className="block text-sm font-medium text-gray-700">Destination</label>
-                                    <input type="text" id="destination" value={destination} onChange={(e) => setDestination(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" />
-                                </div>
-                                <div>
-                                    <label htmlFor="pickupDate" className="block text-sm font-medium text-gray-700">Pickup Date</label>
-                                    <input type="date" id="pickupDate" value={pickupDate} onChange={(e) => setPickupDate(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" />
-                                </div>
-                                <button type="submit" className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">Create Cargo</button>
-                            </form>
-                            {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
-                        </div>
-                    </div>
-                    <div className="lg:col-span-2">
-                        <div className="bg-white shadow sm:rounded-lg">
-                            <div className="px-4 py-5 sm:px-6">
-                                <h2 className="text-lg font-medium text-gray-900">My Cargo Listings</h2>
-                            </div>
-                            <div className="border-t border-gray-200">
-                                <ul className="divide-y divide-gray-200">
-                                    {myCargo.map((cargo: any) => (
-                                        <li key={cargo._id} className="p-4 hover:bg-gray-50">
-                                            <div className="flex items-center justify-between">
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="text-sm font-medium text-gray-900 truncate">{cargo.description}</p>
-                                                    <p className="text-sm text-gray-500">{cargo.pickupLocation} to {cargo.destination}</p>
-                                                </div>
-                                                <div className="ml-4 flex-shrink-0">
-                                                    <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
-                                                        {cargo.status}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        </li>
-                                    ))}
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
+                <div className="space-y-2">
+                  <Label htmlFor="weight">Weight (in kg)</Label>
+                  <Input 
+                    id="weight" 
+                    type="number" 
+                    placeholder="e.g., 1500" 
+                    value={weight}
+                    onChange={(e) => setWeight(e.target.value)}
+                    required 
+                  />
                 </div>
-            </div>
+                <div className="space-y-2">
+                  <Label htmlFor="pickupLocation">Pickup Location</Label>
+                  <Input 
+                    id="pickupLocation" 
+                    placeholder="e.g., New York, NY" 
+                    value={pickupLocation}
+                    onChange={(e) => setPickupLocation(e.target.value)}
+                    required 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="destination">Destination</Label>
+                  <Input 
+                    id="destination" 
+                    placeholder="e.g., Los Angeles, CA" 
+                    value={destination}
+                    onChange={(e) => setDestination(e.target.value)}
+                    required 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="pickupDate">Desired Pickup Date</Label>
+                  <Input 
+                    id="pickupDate" 
+                    type="date" 
+                    value={pickupDate}
+                    onChange={(e) => setPickupDate(e.target.value)}
+                    required 
+                  />
+                </div>
+                {error && <p className="text-sm text-red-500">{error}</p>}
+                <Button type="submit" className="w-full" disabled={isLoading}>
+                  {isLoading ? 'Starting Auction...' : 'Start 5-Minute Auction'}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
         </div>
-    );
+
+        {/* Column 2: Active & Recent Listings */}
+        <div className="lg:col-span-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>My Active & Recent Listings</CardTitle>
+              <CardDescription>Your cargo auctions will appear here.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {swrError ? (
+                <p className="text-red-500">Failed to load listings. Please refresh.</p>
+              ) : !cargoList ? (
+                <p>Loading listings...</p>
+              ) : cargoList.length === 0 ? (
+                <p>You have not listed any cargo yet.</p>
+              ) : (
+                <div className="space-y-4">
+                  {cargoList.map((cargo) => (
+                    <Card key={cargo._id} className="flex flex-col sm:flex-row justify-between sm:items-center p-4">
+                      <div>
+                        <h3 className="font-semibold">{cargo.description}</h3>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                           {cargo.pickupLocation} &rarr; {cargo.destination}
+                        </p >
+                      </div>
+                      <div className="flex items-center gap-4 mt-2 sm:mt-0">
+                        <Badge variant={getStatusBadgeVariant(cargo.status)}>
+                          {cargo.status}
+                        </Badge>
+                        {cargo.status === 'Active' && (
+                          <div className="text-sm font-medium">
+                            Lowest Bid: {cargo.currentLowestBid ? `$${cargo.currentLowestBid}` : 'No bids yet'}
+                          </div>
+                        )}
+                         {cargo.status === 'Awarded' && (
+                          <div className="text-sm font-medium text-green-600">
+                            Won at: ${cargo.currentLowestBid}
+                          </div>
+                        )}
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
 }
+

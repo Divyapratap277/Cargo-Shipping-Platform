@@ -59,5 +59,10 @@ export const fetchMyCargo = () =>
 export const fetchAllAuctions = () => 
     apiFetch('/auctions'); // Uses GET /api/auctions
 
+export const fetchAuctionDetails = (id) => 
+    apiFetch(`/auctions/${id}`); // Uses GET /api/auctions/:id
+
 export const placeBidOnAuction = (auctionId, amount) => 
     apiFetch(`/auctions/${auctionId}/bids`, { method: 'POST', body: { amount } }); // Uses POST /api/auctions/:id/bids
+
+
